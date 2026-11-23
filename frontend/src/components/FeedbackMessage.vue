@@ -6,6 +6,8 @@ defineProps({
 </script>
 
 <template>
-  <div v-if="message" class="feedback success" role="status">{{ message }}</div>
-  <div v-if="error" class="feedback danger" role="alert">{{ error }}</div>
+  <div aria-live="polite" aria-atomic="true">
+    <div v-if="message" class="feedback success" role="status">{{ message }}</div>
+    <div v-if="error" class="feedback danger" role="alert">{{ error }}</div>
+  </div>
 </template>
