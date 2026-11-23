@@ -191,17 +191,58 @@ app.use((error, req, res, next) => {
 const PORT = Number(process.env.PORT) || 3000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cis3339_homework1';
 
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+    });
+});
+
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(frontendDist));
+app.use((req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/api') && req.accepts('html')) {
+        return res.sendFile(path.join(frontendDist, 'index.html'), (error) => {
+            if (error) next(error);
+        });
+    }
+    next();
+});
+
+app.use((req, res) => {
+    res.status(404).json({ error: 'Route not found' });
+});
+
 async function start() {
     try {
-        await mongoose.connect(MONGODB_URI);
+        await mongoose.connect(MONGODB_URI, {
+            serverSelectionTimeoutMS: 10000
+        });
         await Promise.all([Student.init(), Course.init(), Enrollment.init()]);
+
         app.listen(PORT, () => {
+            console.log(`MongoDB connected: ${MONGODB_URI}`);
             console.log(`Server is running on http://localhost:${PORT}`);
         });
     } catch (error) {
-        console.error('Unable to start server:', error.message);
+        console.error('Unable to connect to MongoDB.');
+        console.error(`Check MONGODB_URI in backend/.env and confirm MongoDB is running.`);
+        console.error(error.message);
         process.exit(1);
     }
 }
+
+mongoose.connection.on('disconnected', () => {
+    console.warn('MongoDB disconnected');
+});
+
+mongoose.connection.on('error', (error) => {
+    console.error('MongoDB connection error:', error.message);
+});
+
+process.on('SIGINT', async () => {
+    await mongoose.disconnect();
+    process.exit(0);
+});
 
 start();

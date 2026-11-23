@@ -1,4 +1,4 @@
-const API_BASE = '/api'
+const API_BASE = import.meta.env.DEV ? '/api' : ''
 
 export async function apiRequest(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {

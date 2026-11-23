@@ -31,6 +31,36 @@ After completing this assignment, you should be able to:
 - A modern web browser
 - Basic knowledge of JavaScript, Vue, Node.js, Express, REST APIs, and MongoDB
 
+## Completed Application Setup
+
+MongoDB setup details are documented in `MONGODB_SETUP.md`.
+
+The submitted `backend/.env` uses:
+
+```env
+MONGODB_URI=mongodb://127.0.0.1:27017/cis3339_homework1
+PORT=3000
+```
+
+Start MongoDB Community Edition, then run these commands from the repository root:
+
+```powershell
+npm run install:all
+npm run build
+npm start
+```
+
+Open `http://localhost:3000` in a browser. Express serves the Vue production assets and supports refreshes on Vue Router routes.
+
+For frontend development:
+
+```powershell
+npm start
+npm run dev --prefix frontend
+```
+
+The development frontend is available at `http://localhost:5173` and proxies API requests to port `3000`.
+
 ## AI Tools
 
 You can use AI development tools, such as Visual Studio Code with GitHub Copilot or other AI tools. You are responsible for understanding, testing, and being able to explain all submitted code.
