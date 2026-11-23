@@ -18,7 +18,26 @@ const studentSchema = new mongoose.Schema(
     { timestamps: true }
 );
 
+const courseSchema = new mongoose.Schema(
+    {
+        id: { type: String, required: true, trim: true, unique: true },
+        name: { type: String, required: true, trim: true }
+    },
+    { timestamps: true }
+);
+
+const enrollmentSchema = new mongoose.Schema(
+    {
+        student: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', required: true },
+        course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true }
+    },
+    { timestamps: true }
+);
+enrollmentSchema.index({ student: 1, course: 1 }, { unique: true });
+
 const Student = mongoose.model('Student', studentSchema);
+const Course = mongoose.model('Course', courseSchema);
+const Enrollment = mongoose.model('Enrollment', enrollmentSchema);
 
 app.get('/students', async (req, res, next) => {
     try {
@@ -32,15 +51,10 @@ app.get('/students', async (req, res, next) => {
 app.post('/find-student', async (req, res, next) => {
     try {
         const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
-        if (!name) {
-            return res.status(400).json({ error: 'Student name is required' });
-        }
+        if (!name) return res.status(400).json({ error: 'Student name is required' });
 
         const students = await Student.find({ name: { $regex: name, $options: 'i' } }).sort({ name: 1 });
-        if (!students.length) {
-            return res.status(404).json({ error: 'Student not found' });
-        }
-
+        if (!students.length) return res.status(404).json({ error: 'Student not found' });
         res.json(students);
     } catch (error) {
         next(error);
@@ -69,18 +83,93 @@ app.post('/delete-student', async (req, res, next) => {
     try {
         const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
         const id = req.body.id !== undefined ? String(req.body.id).trim() : '';
+        if (!name && !id) return res.status(400).json({ error: 'Student name or ID is required' });
 
-        if (!name && !id) {
-            return res.status(400).json({ error: 'Student name or ID is required' });
-        }
-
-        const query = id ? { id } : { name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } };
+        const query = id
+            ? { id }
+            : { name: { $regex: `^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' } };
         const student = await Student.findOneAndDelete(query);
-        if (!student) {
-            return res.status(404).json({ error: 'Student not found' });
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+
+        await Enrollment.deleteMany({ student: student._id });
+        res.json({ message: 'Student deleted successfully', student });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/courses', async (req, res, next) => {
+    try {
+        const courses = await Course.find().sort({ id: 1, name: 1 });
+        res.json(courses);
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/courses', async (req, res, next) => {
+    try {
+        const id = req.body.id !== undefined ? String(req.body.id).trim() : '';
+        const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+        if (!id || !name) return res.status(400).json({ error: 'Course ID and course name are required' });
+
+        const course = await Course.create({ id, name });
+        res.status(201).json({ message: 'Course added successfully', course });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.delete('/courses/:id', async (req, res, next) => {
+    try {
+        const course = await Course.findOneAndDelete({ id: req.params.id });
+        if (!course) return res.status(404).json({ error: 'Course not found' });
+
+        await Enrollment.deleteMany({ course: course._id });
+        res.json({ message: 'Course deleted successfully', course });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.post('/enrollments', async (req, res, next) => {
+    try {
+        const studentId = req.body.studentId !== undefined ? String(req.body.studentId).trim() : '';
+        const courseId = req.body.courseId !== undefined ? String(req.body.courseId).trim() : '';
+        if (!studentId || !courseId) {
+            return res.status(400).json({ error: 'Student and course are required' });
         }
 
-        res.json({ message: 'Student deleted successfully', student });
+        const [student, course] = await Promise.all([
+            Student.findOne({ id: studentId }),
+            Course.findOne({ id: courseId })
+        ]);
+        if (!student) return res.status(404).json({ error: 'Student not found' });
+        if (!course) return res.status(404).json({ error: 'Course not found' });
+
+        const existing = await Enrollment.findOne({ student: student._id, course: course._id });
+        if (existing) return res.status(409).json({ error: 'Student is already enrolled in this course' });
+
+        const enrollment = await Enrollment.create({ student: student._id, course: course._id });
+        res.status(201).json({ message: 'Enrollment added successfully', enrollment });
+    } catch (error) {
+        next(error);
+    }
+});
+
+app.get('/courses/:id/students', async (req, res, next) => {
+    try {
+        const course = await Course.findOne({ id: req.params.id });
+        if (!course) return res.status(404).json({ error: 'Course not found' });
+
+        const enrollments = await Enrollment.find({ course: course._id })
+            .populate('student', 'name id phone zip')
+            .sort({ createdAt: 1 });
+        const students = enrollments
+            .map((enrollment) => enrollment.student)
+            .filter((student) => student !== null);
+
+        res.json(students);
     } catch (error) {
         next(error);
     }
@@ -88,7 +177,9 @@ app.post('/delete-student', async (req, res, next) => {
 
 app.use((error, req, res, next) => {
     if (error?.code === 11000) {
-        return res.status(409).json({ error: 'A student with this ID already exists' });
+        const field = Object.keys(error.keyPattern || {})[0];
+        if (field === 'id') return res.status(409).json({ error: 'A record with this ID already exists' });
+        return res.status(409).json({ error: 'Duplicate record is not allowed' });
     }
     if (error instanceof mongoose.Error.ValidationError) {
         return res.status(400).json({ error: error.message });
@@ -103,7 +194,7 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/cis333
 async function start() {
     try {
         await mongoose.connect(MONGODB_URI);
-        await Student.init();
+        await Promise.all([Student.init(), Course.init(), Enrollment.init()]);
         app.listen(PORT, () => {
             console.log(`Server is running on http://localhost:${PORT}`);
         });
